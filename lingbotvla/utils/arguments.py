@@ -260,6 +260,22 @@ class TrainingArguments:
         default="adamw",
         metadata={"help": "Optimizer. Default to adamw."},
     )
+    enable_lora: bool = field(
+        default=False,
+        metadata={"help": "Enable LoRA fine-tuning: freeze the whole model, inject LoRA adapters into the VLM, and unfreeze the action expert."},
+    )
+    lora_rank: int = field(
+        default=8,
+        metadata={"help": "LoRA rank."},
+    )
+    lora_alpha: int = field(
+        default=8,
+        metadata={"help": "LoRA alpha."},
+    )
+    lora_target_modules: str = field(
+        default="q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj",
+        metadata={"help": "LoRA target modules (comma separated, substring-matched against Linear module names)."},
+    )
     max_grad_norm: float = field(
         default=1.0,
         metadata={"help": "Clip value for gradient norm."},

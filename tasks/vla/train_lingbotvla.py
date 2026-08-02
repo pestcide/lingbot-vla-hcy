@@ -166,6 +166,37 @@ def main():
         if args.train.data_parallel_mode == "fsdp1":
             fsdp_kwargs["use_orig_params"] = True
 
+    # LoRA fine-tuning: must be injected before FSDP wrapping / torch.compile.
+    # Freezes the whole model, injects LoRA adapters into the VLM, then unfreezes
+    # the action expert (qwen_expert) so the action head is still fully fine-tuned.
+    if args.train.enable_lora:
+        from lingbotvla.utils.lora_utils import add_lora_to_model, freeze_parameters
+
+        logger.info_rank0(
+            f"Applying LoRA: rank={args.train.lora_rank}, alpha={args.train.lora_alpha}, "
+            f"targets={args.train.lora_target_modules}"
+        )
+        freeze_parameters(model)
+        lora_support = {n.split(".")[-1] for n, m in model.named_modules() if isinstance(m, torch.nn.Linear)}
+        add_lora_to_model(
+            model,
+            lora_rank=args.train.lora_rank,
+            lora_alpha=args.train.lora_alpha,
+            lora_target_modules=args.train.lora_target_modules,
+            lora_target_modules_support=lora_support,
+        )
+        # Unfreeze the action expert (core of post-training). The policy wraps
+        # FlowMatching -> QwenvlWithExpertModel -> qwen_expert, so locate it
+        # by walking the module tree instead of hard-coding the nesting.
+        expert = next((m.qwen_expert for m in model.modules() if hasattr(m, "qwen_expert")), None)
+        assert expert is not None, "qwen_expert not found in model"
+        expert.requires_grad_(True)
+        if args.train.freeze_vision_encoder:
+            visual = next((m.visual for m in model.modules() if hasattr(m, "visual") and isinstance(m.visual, torch.nn.Module)), None)
+            if visual is not None:
+                visual.requires_grad_(False)
+        num_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        logger.info_rank0(f"Trainable parameters after LoRA: {num_trainable / 1e6:.2f}M")
 
     model = build_parallelize_model(
         model,

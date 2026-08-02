@@ -1,0 +1,52 @@
+states:
+  # 双臂 SO-101:左臂 5 关节 [0:5),右臂 5 关节 [6:11) => 10 维 arm.position
+  - observation.state.arm.position:
+      origin_keys:
+        - observation.state:       # left arm joints [0:5)
+            start: 0
+            end: 5
+        - observation.state:       # right arm joints [6:11)
+            start: 6
+            end: 11
+
+  # 左右夹爪 [5:6) + [11:12) => 2 维 effector.position
+  - observation.state.effector.position:
+      origin_keys:
+        - observation.state:       # left gripper [5:6)
+            start: 5
+            end: 6
+        - observation.state:       # right gripper [11:12)
+            start: 11
+            end: 12
+
+actions:
+  # 真实数据推荐 delta 动作:当前动作减去对应状态
+  - action.arm.position:
+      origin_keys:
+        - action:
+            start: 0
+            end: 5
+        - action:
+            start: 6
+            end: 11
+      subtract_state: True
+
+  # 夹爪保持绝对动作
+  - action.effector.position:
+      origin_keys:
+        - action:
+            start: 5
+            end: 6
+        - action:
+            start: 11
+            end: 12
+      subtract_state: False
+
+images:
+  # 统一相机命名与预训练一致:environment -> camera_top
+  - observation.images.camera_top:
+      origin_keys: observation.images.environment
+  - observation.images.camera_wrist_left:
+      origin_keys: observation.images.wrist_left
+  - observation.images.camera_wrist_right:
+      origin_keys: observation.images.wrist_right

@@ -1,0 +1,78 @@
+model:
+  # 基模:lingbot-vla-4b-depth(带 MoRGBD 深度对齐分支,权重含 depth_align_head;depth_align_embs 随机初始化并从头学习)
+  model_path: /home/hcy/.cache/modelscope/hub/models/Robbyant/lingbot-vla-4b-depth
+  tokenizer_path: /data1/hcy/cache/huggingface/hub/models--Qwen--Qwen2.5-VL-3B-Instruct/snapshots/66285546d2b821cf421d4f5eb2576359d3770cd3
+  # depth 分支依赖两个冻结的预训练模型(与参考配置 real_load20000h_depth.yaml 对应):
+  #   moge_path   = MoGe 2 ViT-Base-norm: 单目深度估计,RGB -> 预测深度(伪标签)
+  #   morgbd_path = LingBot-Depth MDM ViT-L/14: (RGB + 深度) -> 深度特征,作为 depth head 的监督目标
+  moge_path: /home/hcy/.cache/huggingface/hub/models--Ruicheng--moge-2-vitb-normal/snapshots/54ad3a693e61907ea4633d13dec6ee682fa09419/model.pt
+  morgbd_path: /home/hcy/.cache/modelscope/hub/models/Robbyant/lingbot-depth-pretrain-vitl-14/model.pt
+
+data:
+  datasets_type: vla
+  # 对应 configs/robot_configs/rebot_b601_depth.yaml(第 3 相机用环境相机填充)
+  data_name: rebot_b601_depth
+  train_path: /home/hcy/data/lerobot-dataset/rebot_v060_v1_red_cube
+  joints:
+    - arm.position: 6
+    - effector.position: 1
+  cameras:
+    - camera_top
+    - camera_wrist_left
+    - camera_wrist_right
+  num_workers: 8
+  norm_type: meanstd
+  norm_stats_file: assets/norm_stats/rebot_b601.json
+
+train:
+  output_dir: "output/rebot_b601_depth_expert"   # 独立 run 目录
+  data_parallel_mode: fsdp2
+  enable_full_shard: false
+  module_fsdp_enable: true
+  use_compile: false
+  rmpad: false
+  rmpad_with_pos_ids: false
+  ulysses_parallel_size: 1
+  freeze_vision_encoder: true
+  # 方案:仅训练动作专家 + depth 对齐头(VLM 完全冻结)。单卡 48GB 验证过 expert-only 峰值 ~35GB,
+  # 额外 ~1.7GB 给冻结的 MoGe(0.4G)+ MDM(1.2G)
+  train_expert_only: true
+  enable_lora: false   # LoRA 方案已停用(如需启用:true + lora_rank/alpha)
+  tokenizer_max_length: 72
+  max_action_dim: 75
+  max_state_dim: 75
+  lr: 5.0e-5
+  lr_decay_style: cosine      # 尾部退火避免震荡(so101_bi 经验)
+  lr_warmup_ratio: 0.03
+  micro_batch_size: 8
+  gradient_accumulation_steps: 16   # 8 x 16 = 全局 batch 128
+  max_steps: 10000            # 21702 帧 / batch128 ≈ 170 步/epoch → 10000 步 ≈ 59 epoch
+  ckpt_manager: dcp
+  save_steps: 1000
+  save_epochs: 0
+  enable_fp32: false   # Control the precision of the action expert
+  enable_resume: true
+  # 深度对齐分支配置(与官方 lingbot-vla-4b-depth 参考配置一致)
+  align_params:
+    mode: 'query'
+    num_task_tokens: 8
+    use_image_tokens: True
+    use_task_tokens: False
+    use_text_tokens: False
+    use_contrastive: True
+    contrastive_loss_weight: 0.3
+    depth_loss_weight: 0.004
+    llm:
+      dim_out: 2048
+      image_token_size: 8
+      image_input_size: 224
+    depth:
+      model_type: MoRGBD
+      num_layers: 1
+      num_heads: 4
+      dim_head: 32
+      ff_mult: 1
+      num_backbone_tokens: 256
+      token_size: 16
+      dim_out: 1024
+      input_size: 224

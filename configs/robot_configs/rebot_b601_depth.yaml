@@ -1,0 +1,43 @@
+states:
+  # 单臂 REBOT B601:6 关节 [0:6) => 6 维 arm.position
+  - observation.state.arm.position:
+      origin_keys:
+        - observation.state:       # shoulder_pan/shoulder_lift/elbow_flex/wrist_flex/wrist_yaw/wrist_roll
+            start: 0
+            end: 6
+
+  # 夹爪 [6:7) => 1 维 effector.position
+  - observation.state.effector.position:
+      origin_keys:
+        - observation.state:       # gripper
+            start: 6
+            end: 7
+
+actions:
+  # 真实数据推荐 delta 动作:当前动作减去对应状态
+  - action.arm.position:
+      origin_keys:
+        - action:
+            start: 0
+            end: 6
+      subtract_state: True
+
+  # 夹爪保持绝对动作
+  - action.effector.position:
+      origin_keys:
+        - action:
+            start: 6
+            end: 7
+      subtract_state: False
+
+images:
+  # 只使用 RGB 相机(depth 分支的深度目标由 MoGe 从 RGB 在线估计,不需要真实深度图)
+  # 命名与预训练一致:top -> d435i, wrist -> d405
+  - observation.images.camera_top:
+      origin_keys: observation.images.d435i_color
+  - observation.images.camera_wrist_left:
+      origin_keys: observation.images.d405_color
+  # depth 分支固定要求恰好 3 个相机(get_depth_target / 模型前向均按 n=3 硬编码)。
+  # rebot 只有 2 个 RGB 相机,第 3 维直接用腕部相机(d405)画面填充,不改模型代码。
+  - observation.images.camera_wrist_right:
+      origin_keys: observation.images.d405_color

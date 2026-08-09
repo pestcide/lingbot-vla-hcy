@@ -174,6 +174,27 @@ def main(policy, robo_name, data_root, traj_ids, chunk_size, save_plot_path):
     for action_feature in policy.vla.feature_transform.org_features['actions']:
         delta_timestamps[action_feature] = [t / dataset_meta.fps for t in range(policy.config.chunk_size)]
     dataset = LeRobotDataset(repo_id, root=root, delta_timestamps=delta_timestamps)
+
+    # 只保留机器人配置实际使用的图像键。数据集里可能还有其他相机(如时间戳稀疏的深度视频),
+    # 裸读 dataset[idx] 时 LeRobot 会按容差对全部 video_keys 做时间戳查询,超容差会 assert 崩溃。
+    # (训练走 vla 数据集类会跳过超容差帧,这里需显式过滤)
+    needed_video_keys = [
+        k for k in dataset.meta.video_keys
+        if k in policy.vla.feature_transform.org_features['images']
+    ]
+    if len(needed_video_keys) < len(dataset.meta.video_keys):
+        _orig_meta = dataset.meta
+
+        class _FilteredMeta:
+            @property
+            def video_keys(self) -> list[str]:
+                return needed_video_keys
+
+            def __getattr__(self, name):
+                return getattr(_orig_meta, name)
+
+        dataset.meta = _FilteredMeta()
+
     print(f"Dataset length: {len(dataset)}")
     logging.info(f"Running evaluation on trajectories: {traj_ids}")
 
